@@ -1,11 +1,2 @@
 
 == 1. lake build OAI ComparatorChallenges
-Build completed successfully (12018 jobs).
-sorry warnings outside the challenge file: 0
-
-== 2. statement comparison and axioms (ComparatorChallenges/SubexponentialSAT.json)
-compared 2301 constants reachable from the challenge statements (69 declared in ComparatorChallenges.SubexponentialSAT, the rest from Lean/Mathlib)
-axioms used by #[OAI.Algorithms.SubexponentialSAT.SqrtLogSpace.exact_count_and_sat]: #[propext, Classical.choice, Quot.sound]
-OK: solution matches the challenge statement and uses only permitted axioms
-
-== 3. kernel replay: leanchecker on every SubexponentialSAT module
