@@ -237,6 +237,9 @@ def run_stage(client, paper, name, task, effort, force) -> str:
         return out.read_text()
     print(f"[start] {name}", flush=True)
     msg = ask(client, paper, task, effort)
+    # Save the raw response before anything else can fail, so a paid-for answer is never lost.
+    (REPORTS / "raw").mkdir(exist_ok=True)
+    (REPORTS / "raw" / f"{name}.json").write_text(msg.to_json())
     text = "".join(b.text for b in msg.content if b.type == "text")
     served = {it.model or msg.model for it in (msg.usage.iterations or [])} or {msg.model}
     fell_back = any(it.type == "fallback_message" for it in (msg.usage.iterations or []))
@@ -252,7 +255,7 @@ def run_stage(client, paper, name, task, effort, force) -> str:
         "cache_creation_input_tokens": msg.usage.cache_creation_input_tokens,
         "output_tokens": msg.usage.output_tokens,
         "estimated_cost_usd": round(cost(msg.usage), 4),
-        "request_id": msg._request_id,
+        "message_id": msg.id,
         "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
     }
     if msg.stop_reason == "refusal":
