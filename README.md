@@ -1,53 +1,62 @@
-# Readme
+# The Exponential Time Hypothesis is False — paper, Lean proof, and verification
 
-This repository contains mathematical manuscripts and supporting proof artifacts produced by an unnamed internal OpenAI model. 
+This branch is a slimmed copy of [openai/math](https://github.com/openai/math) (forked as
+`Waxmell114514/math`) that keeps only what concerns family **378, "Disproof of the Exponential
+Time Hypothesis"** — the October 25, 2026 manuscript and its Lean formalization — plus tooling to
+check them. Everything else from the upstream collection (the other ~720 manuscripts and Lean
+developments) is still on `main`.
 
-As part of model development, we evaluate our models on open research problems. We expanded these evaluations after performance on our existing mathematical evaluations saturated. Some outputs build upon earlier results produced by the models.
+> **378. Disproof of the Exponential Time Hypothesis.** For every fixed $k\ge2$, a deterministic
+> algorithm counts the satisfying assignments of a $k$-CNF with $n$ variables and $m$ clauses in
+> time $(n+m)^{O_k(1)}2^{n/(\log n)^{1/2+o(1)}}$. This yields superlinear circuit lower bounds for
+> a language in $\mathsf{E}^{\mathsf{NP}}$ on infinitely many input lengths.
 
-This collection includes results at different stages of verification. Not all have accompanying Lean formalizations. We will continue to update this repository with Lean formalizations as we obtain them. 
+## Layout
 
-Some of the unformalized results could have issues. We will endeavor to fix any such issues quickly.
-We are also exploring community-hosted repositories for these materials. 
+| Path | Contents |
+| --- | --- |
+| [`preprints/The-Exponential-Time-Hypothesis-is-False-October-25-2026/`](preprints/The-Exponential-Time-Hypothesis-is-False-October-25-2026/) | The paper (`paper.pdf`) and its LaTeX source (`build/`), unchanged from upstream |
+| [`lean/`](lean/) | Lean 4 project with only the `SubexponentialSAT` development (unchanged sources) and a Mathlib-only `lakefile.lean` |
+| [`lean/ComparatorChallenges/SubexponentialSAT.lean`](lean/ComparatorChallenges/SubexponentialSAT.lean) | The trusted statement of the main theorem, unchanged from upstream |
+| [`verify/`](verify/) | Verification tooling and reports (see below) |
 
-In our view, these manuscripts are best understood as a form of raw research data, rather than polished academic papers. We defer to the math community completely on matters of credit, precedence, and concurrent work.
+All paper and Lean source files are byte-identical to upstream `main`; only the build
+configuration (`lean/lakefile.lean`, `lean/lake-manifest.json`, `lean/OAI.lean`,
+`lean/formalization.yaml`) and the READMEs were changed. Check with
+`git diff --diff-filter=AMR --stat main -- preprints lean/OAI lean/docs lean/ComparatorChallenges/SubexponentialSAT.*`
+(prints nothing).
 
-## Navigating the collection
+## Verification
 
-The current catalogue contains 721 manuscripts organized into 373 families. A family groups related papers, which may include a principal result, companion arguments, consequences, or alternative proofs. Each family is classified by mathematical discipline.
+Two independent kinds of checks:
 
-- Start with the [overview](overview.pdf) for descriptions of the families.
-- Use the [manuscript map](CONTENTS.md) to find individual papers and their supporting materials.
-- The [`preprints/`](preprints/) directory contains PDFs, source files, and manuscript-specific citation and build instructions.
-- The [Lean library](lean/README.md) and [formalization catalogue](lean/formalization.yaml) describe the available formal proofs, their associated papers, and verification configurations. See the [Comparator instructions](lean/ComparatorChallenges/README.md) for additional checking instructions. The repository has ~42% top-line results formalized.
-- Updates to the repo are described in the [history](history.md).
+1. **Mechanical Lean checks** — [`verify/check_lean.sh`](verify/check_lean.sh): build the
+   formalization against Mathlib, compare the solution with the trusted challenge statement and
+   list the axioms it uses ([`verify/CompareDecls.lean`](verify/CompareDecls.lean)), replay every
+   declaration through the Lean kernel (`leanchecker`), and run two negative controls that the
+   comparison must reject.
+2. **Referee review by Claude Opus** — [`verify/opus_review.py`](verify/opus_review.py): one
+   review of whether the Lean statement faithfully refutes ETH, a line-by-line proof check of each
+   of the paper's ten sections/appendices, and a synthesis. Reports go to
+   [`verify/reports/`](verify/reports/).
 
-### Reasoning summaries
+Results are summarized in [`verify/RESULTS.md`](verify/RESULTS.md).
 
-We are also releasing abridged summaries of the model's reasoning, covering the following results:
+### Reproducing
 
-| Family | Subject |
-|---|---|
-| 007 | [Ordinary two-point correlations of multiplicative functions](reasoning_traces/ordinary-two-point-correlations.pdf) |
-| 017 | [The irrationality exponent of π](reasoning_traces/irrationality-exponent-of-pi.pdf) |
-| 087 | [Symmetric and general Mahler conjectures](reasoning_traces/symmetric-and-general-mahler-conjectures.pdf) |
-| 102 | [Ordinary NP-hardness at the basic semidefinite threshold](reasoning_traces/basic-semidefinite-threshold-np-hardness.pdf) |
-| 159 | [Quasipolynomial bounds for arithmetic progressions](reasoning_traces/quasipolynomial-arithmetic-progressions.pdf) |
-| 197 | [Kaplansky's direct-finiteness conjecture in characteristic two](reasoning_traces/kaplansky-direct-finiteness-characteristic-two.pdf) |
-| 221 | [The Mézard–Parisi formula for diluted spin glasses](reasoning_traces/mezard-parisi-formula.pdf) |
-| 271 | [Spontaneous magnetization in the quantum Heisenberg ferromagnet](reasoning_traces/spontaneous-magnetization-quantum-heisenberg-ferromagnet.pdf) |
-| 287 | [Isomorphism of free group factors](reasoning_traces/free-group-factor-isomorphism.pdf) |
-| 362 | [The three-dimensional relativistic Vlasov–Maxwell system](reasoning_traces/relativistic-vlasov-maxwell.pdf) |
+```sh
+# Lean 4.34.1 toolchain on PATH (lake, lean, leanchecker)
+cd lean && lake update && cd ..
+verify/check_lean.sh
 
+pip install anthropic
+ANTHROPIC_API_KEY=... python3 verify/opus_review.py          # all stages; finished ones are skipped
+python3 verify/opus_review.py --list                         # stage names
+python3 verify/opus_review.py --only statement --force       # re-run one stage
+```
 
-## How the results were produced
+## License and citation
 
-The vast majority of results were obtained with the same procedure using an unreleased internal OpenAI model. On average, each result used three hours of ChatGPT Pro thinking compute with that model. Over the course of the evaluation, the model was posed approximately 4,000 problems. Aggregating the output into result families and manuscripts and requiring an appropriate level of significance led to the catalog outlined above.
-
-Exceptions to this fixed procedure include work on a zero-free region for the Riemann zeta function and proof of the Hodge Conjecture for CM abelian varieties. Additionally, the writeup for the Re(s) > 11/12 zero-free region for the Riemann zeta function was human edited for readability. 
-
-
-## Versions and citations
-
-We will preserve the public release history of this collection. Corrections and revisions will be recorded as new versions, with previously released versions remaining accessible. 
-
-To cite the individual manuscript, use the BibTeX block in its directory. 
+Content is from [openai/math](https://github.com/openai/math) under its [LICENSE](LICENSE); see
+the paper's [README](preprints/The-Exponential-Time-Hypothesis-is-False-October-25-2026/README.md)
+for the citation.
