@@ -9,3 +9,6 @@ axioms used by #[OAI.Algorithms.SubexponentialSAT.SqrtLogSpace.exact_count_and_s
 OK: solution matches the challenge statement and uses only permitted axioms
 
 == 3. kernel replay: leanchecker on every SubexponentialSAT module
+xargs: leanchecker: terminated by signal 9
+xargs: leanchecker: terminated by signal 9
+leanchecker reported a failure
