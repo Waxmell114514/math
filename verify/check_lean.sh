@@ -30,9 +30,18 @@ find .lake/build/ir -name '*.setup.json' -delete
 step "2. statement comparison and axioms ($config)"
 lake env lean --run "$here/CompareDecls.lean" "$config"
 
-step "3. kernel replay: leanchecker OAI.Algorithms.SubexponentialSAT"
-time lake env leanchecker OAI.Algorithms.SubexponentialSAT
-echo "leanchecker: all SubexponentialSAT modules replayed without error"
+step "3. kernel replay: leanchecker on every SubexponentialSAT module"
+# Each replay loads the module's whole import environment (about 2 GB here), and a single
+# `leanchecker OAI.Algorithms.SubexponentialSAT` starts all 3,091 replays at once and runs out
+# of memory, so run one module per process, a few at a time. (No module name is a prefix of
+# another, so each call replays exactly one module.)
+find OAI/Algorithms/SubexponentialSAT -name '*.lean' | sed 's|\.lean$||; s|/|.|g' | sort > "$work/modules.txt"
+lean_path="$(lake env printenv LEAN_PATH)"
+start=$SECONDS
+if ! LEAN_PATH="$lean_path" xargs -P "${JOBS:-4}" -n 1 leanchecker < "$work/modules.txt"; then
+  echo "leanchecker reported a failure"; exit 1
+fi
+echo "leanchecker: all $(wc -l < "$work/modules.txt") SubexponentialSAT modules replayed without error ($((SECONDS - start)) s)"
 
 step "4. negative controls (each must be rejected)"
 mkdir -p "$work/neg/ComparatorChallenges"
