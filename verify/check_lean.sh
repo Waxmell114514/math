@@ -36,10 +36,29 @@ step "3. kernel replay: leanchecker on every SubexponentialSAT module"
 # of memory, so run one module per process, a few at a time. (No module name is a prefix of
 # another, so each call replays exactly one module.)
 find OAI/Algorithms/SubexponentialSAT -name '*.lean' | sed 's|\.lean$||; s|/|.|g' | sort > "$work/modules.txt"
-lean_path="$(lake env printenv LEAN_PATH)"
+LEAN_PATH="$(lake env printenv LEAN_PATH)"
+# A passing replay is recorded under .lake/leanchecker-ok, keyed by the SHA-256 of the module's
+# .olean, so an interrupted run resumes where it stopped. `rm -rf .lake/leanchecker-ok` to redo all.
+OK_DIR=.lake/leanchecker-ok
+mkdir -p "$OK_DIR"
+export LEAN_PATH OK_DIR
+replay() {
+  local m=$1 hash
+  hash=$(sha256sum ".lake/build/lib/lean/${m//.//}.olean" | cut -d' ' -f1)
+  [[ -f "$OK_DIR/$m" && "$(cat "$OK_DIR/$m")" == "$hash" ]] && return 0
+  leanchecker "$m" && echo "$hash" > "$OK_DIR/$m"
+}
+export -f replay
 start=$SECONDS
-if ! LEAN_PATH="$lean_path" xargs -P "${JOBS:-4}" -n 1 leanchecker < "$work/modules.txt"; then
-  echo "leanchecker reported a failure"; exit 1
+: > "$work/retry.txt"
+# Some modules need several GB to replay, so a few run at a time; any that fail (in practice:
+# killed for lack of memory) are retried one at a time, where a failure is final.
+xargs -P "${JOBS:-3}" -I{} bash -c 'replay "$1" || echo "$1" >> "$2"' _ {} "$work/retry.txt" < "$work/modules.txt"
+if [[ -s "$work/retry.txt" ]]; then
+  echo "retrying $(wc -l < "$work/retry.txt") module(s) one at a time: $(tr '\n' ' ' < "$work/retry.txt")"
+  while read -r m; do
+    replay "$m" || { echo "leanchecker reported a failure in $m"; exit 1; }
+  done < "$work/retry.txt"
 fi
 echo "leanchecker: all $(wc -l < "$work/modules.txt") SubexponentialSAT modules replayed without error ($((SECONDS - start)) s)"
 
