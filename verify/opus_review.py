@@ -201,15 +201,18 @@ def sections(paper: str) -> list[tuple[str, str, str]]:
     return out
 
 
-def ask(client: anthropic.Anthropic, paper: str, task: str, effort: str) -> anthropic.types.beta.BetaMessage:
+def ask(client: anthropic.Anthropic, paper: str, task: str, effort: str,
+        task_budget: int) -> anthropic.types.beta.BetaMessage:
     with client.beta.messages.stream(
         model=MODEL,
         max_tokens=128000,
         thinking={"type": "adaptive"},
-        output_config={"effort": effort},
+        # The task budget tells the model how many tokens it has, so that at max effort it
+        # paces its reasoning and still writes the report before hitting max_tokens.
+        output_config={"effort": effort, "task_budget": {"type": "tokens", "total": task_budget}},
         # On a policy refusal, let the API route the request to a fallback model; the report
         # header records which model actually answered.
-        betas=["server-side-fallback-2026-07-01"],
+        betas=["server-side-fallback-2026-07-01", "task-budgets-2026-03-13"],
         fallbacks="default",
         system=SYSTEM,
         messages=[{
@@ -230,13 +233,13 @@ def cost(usage) -> float:
             + (usage.cache_creation_input_tokens or 0) * PRICE["cache_write_1h"]) / 1e6
 
 
-def run_stage(client, paper, name, task, effort, force) -> str:
+def run_stage(client, paper, name, task, effort, force, task_budget) -> str:
     out = REPORTS / f"{name}.md"
     if out.exists() and not force:
         print(f"[skip] {name} (report exists)", flush=True)
         return out.read_text()
     print(f"[start] {name}", flush=True)
-    msg = ask(client, paper, task, effort)
+    msg = ask(client, paper, task, effort, task_budget)
     # Save the raw response before anything else can fail, so a paid-for answer is never lost.
     (REPORTS / "raw").mkdir(exist_ok=True)
     (REPORTS / "raw" / f"{name}.json").write_text(msg.to_json())
@@ -261,7 +264,10 @@ def run_stage(client, paper, name, task, effort, force) -> str:
     if msg.stop_reason == "refusal":
         text += f"\n\n**Request refused.** stop_details: {msg.stop_details}\n"
     elif msg.stop_reason == "max_tokens":
+        # Keep it for the record and the cost tally, but not as the stage's report, so a
+        # re-run retries the stage and the synthesis never reads a cut-off review.
         text += "\n\n**Output truncated at max_tokens.**\n"
+        out = out.with_suffix(".truncated.md")
     out.write_text(f"<!-- {json.dumps(meta)} -->\n\n{text}\n")
     print(f"[done] {name}: stop={msg.stop_reason} out={msg.usage.output_tokens} "
           f"cache_read={msg.usage.cache_read_input_tokens} ~${meta['estimated_cost_usd']}", flush=True)
@@ -274,6 +280,8 @@ def main() -> int:
     ap.add_argument("--effort", default="max", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--only", nargs="*", help="run only these stages (statement, sec-NN-..., synthesis)")
     ap.add_argument("--workers", type=int, default=4, help="parallel section reviews")
+    ap.add_argument("--task-budget", type=int, default=100000,
+                    help="token budget announced to the model per stage (max_tokens is 128000)")
     ap.add_argument("--force", action="store_true", help="re-run stages whose report already exists")
     ap.add_argument("--list", action="store_true", help="list the stages and exit")
     args = ap.parse_args()
@@ -296,7 +304,7 @@ def main() -> int:
     # prompt cache before the parallel section reviews read it.
     if "statement" in wanted:
         task = fill(STATEMENT_TASK, scope=SCOPE_DOC.read_text(), challenge=CHALLENGE.read_text())
-        run_stage(client, paper, "statement", task, args.effort, args.force)
+        run_stage(client, paper, "statement", task, args.effort, args.force, args.task_budget)
 
     jobs = []
     for slug, title, first in secs:
@@ -305,7 +313,8 @@ def main() -> int:
             jobs.append((slug, fill(SECTION_TASK, title=title, first_line=first, extra=extra)))
     failed = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {pool.submit(run_stage, client, paper, n, t, args.effort, args.force): n for n, t in jobs}
+        futures = {pool.submit(run_stage, client, paper, n, t, args.effort, args.force, args.task_budget): n
+                   for n, t in jobs}
         for fut in concurrent.futures.as_completed(futures):
             try:
                 fut.result()
@@ -319,10 +328,11 @@ def main() -> int:
             print(f"[skip] synthesis: missing reports {missing}", flush=True)
         else:
             reports = "\n\n".join(f"=== REPORT: {s} ===\n{(REPORTS / f'{s}.md').read_text()}" for s in stages[:-1])
-            run_stage(client, paper, "synthesis", fill(SYNTHESIS_TASK, reports=reports), args.effort, args.force)
+            run_stage(client, paper, "synthesis", fill(SYNTHESIS_TASK, reports=reports), args.effort, args.force,
+                      args.task_budget)
 
     total = 0.0
-    for p in sorted(REPORTS.glob("*.md")):
+    for p in sorted(REPORTS.glob("*.md")):  # includes *.truncated.md: they were paid for too
         m = re.match(r"<!-- (\{.*\}) -->", p.read_text())
         if m:
             total += json.loads(m.group(1))["estimated_cost_usd"]
