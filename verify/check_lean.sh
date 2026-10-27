@@ -23,6 +23,9 @@ if grep -qE "^(error|✖)" "$work/build.log"; then
   echo "build failed"; exit 1
 fi
 echo "sorry warnings outside the challenge file: $(grep "declaration uses 'sorry'" "$work/build.log" | grep -vc ComparatorChallenges || true)"
+# Lake leaves a ~6 MB `.setup.json` per module in .lake/build/ir (about 18 GB for this
+# project). They are only inputs for compiling a module and are rewritten on a rebuild.
+find .lake/build/ir -name '*.setup.json' -delete
 
 step "2. statement comparison and axioms ($config)"
 lake env lean --run "$here/CompareDecls.lean" "$config"
